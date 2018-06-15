@@ -34,7 +34,6 @@
 static const char *MESH_TAG = "mesh_main";
 static const uint8_t MESH_ID[6] = { 0x77, 0x77, 0x77, 0x77, 0x77, 0x77};
 static uint8_t tx_buf[TX_SIZE] = { 0, };
-static uint8_t hello_buf[TX_SIZE] = { 0x3E,0x3E, 0x48,0x65,0x6c,0x6c,0x6f,0x5f,0x4d,0x65,0x73,0x68,0x21, 0x00}; // ">>Hello,Mesh!" in hexa
 static uint8_t rx_buf[RX_SIZE] = { 0, };
 static bool is_running = true;
 static bool is_mesh_connected = false;
@@ -84,13 +83,6 @@ void mesh_send_to_group(const mesh_data_t *data, const mesh_addr_t *group, int s
     }
 }
 
-void send2Server(mesh_addr_t* mAddr,mesh_data_t* mData){
-    if(!gotIP) return;
-
-    ESP_LOGE(MESH_TAG, "Send to server");
-    esp_mesh_send(mAddr, mData, MESH_DATA_TODS, NULL , 0);
-}
-
 void esp_mesh_p2p_tx_main(void *arg)
 {
     int i;
@@ -99,78 +91,16 @@ void esp_mesh_p2p_tx_main(void *arg)
     mesh_addr_t route_table[CONFIG_MESH_ROUTE_TABLE_SIZE];
     int route_table_size = 0;
     mesh_data_t data;
-    mesh_addr_t serverAddr;
-    mesh_data_t serverData;
+    strcpy((char*)tx_buf, "{\"Hello\":\"World\"}");
     data.data = tx_buf;
-    data.size = sizeof(tx_buf);
+    data.size = (unsigned int) strlen((char*)tx_buf);
     data.proto = MESH_PROTO_BIN;
-
-    serverData.data = hello_buf;
-    serverData.size = sizeof(hello_buf);
-    serverData.proto = MESH_PROTO_BIN;
-
-    IP4_ADDR(&serverAddr.mip.ip4, 192,168,0,132);
-    serverAddr.mip.port = 8089;
-#ifdef MESH_P2P_TOS_OFF
-    data.tos = MESH_TOS_DEF;
-#endif /* MESH_P2P_TOS_OFF */
 
     is_running = true;
     while (is_running) {
-        /* non-root do nothing but print */
-
-        send2Server(&serverAddr, &serverData);
-
         ESP_LOGE(MESH_TAG, "Routing table");
         for (i = 0; i < route_table_size; i++) {
             ESP_LOGE(MESH_TAG,MACSTR,MAC2STR(route_table[i].addr));
-        }
-
-        if (!esp_mesh_is_root()) {
-            ESP_LOGI(MESH_TAG, "layer:%d, rtableSize:%d, %s", mesh_layer,
-                     esp_mesh_get_routing_table_size(),
-                     (is_mesh_connected && esp_mesh_is_root()) ? "ROOT" : is_mesh_connected ? "NODE" : "DISCONNECT");
-            vTaskDelay(10 * 1000 / portTICK_RATE_MS);
-            mesh_addr_t parent;
-            err = esp_mesh_get_parent_bssid(&parent);
-            if(err) continue;
-            ESP_LOGI(MESH_TAG, "got parent");
-            
-
-            // warning. begin of copypaste
-            /*static int packet_id = 0;
-            esp_err_t ret        = ESP_OK;
-            int mesh_flag        = MESH_DATA_TODS;
-
-            wifi_mesh_data_type_t data_type    = {
-                .proto = MESH_PROTO_HTTP,
-            };
-
-            mesh_data_t mesh_data = {
-                .proto = MESH_PROTO_HTTP,
-                .tos   = MESH_TOS_DEF,
-                .data = slave_buf,
-                .size = sizeof(slave_buf),
-            };
-
-            wifi_mesh_head_data_t mesh_head_data = {
-                .size = sizeof(slave_buf),
-                .seq  = 0,
-                .id   = packet_id++,
-            };
-
-            mesh_opt_t mesh_opt = {
-                .len  = sizeof(wifi_mesh_head_data_t),
-                .val  = (void *) &mesh_head_data,
-                .type = MESH_OPT_RECV_DS_ADDR,
-            };
-
-            ret = esp_mesh_send(&serverAddr, &mesh_data, mesh_flag, &mesh_opt, 1);*/
-
-        // end of copypaste
-            
-            
-            continue;
         }
 
         esp_mesh_get_routing_table((mesh_addr_t *) &route_table,
@@ -180,39 +110,9 @@ void esp_mesh_p2p_tx_main(void *arg)
                      esp_mesh_get_routing_table_size(), send_count);
         }
         send_count++;
-        tx_buf[25] = (send_count >> 24) & 0xff;
-        tx_buf[24] = (send_count >> 16) & 0xff;
-        tx_buf[23] = (send_count >> 8) & 0xff;
-        tx_buf[22] = (send_count >> 0) & 0xff;
-        if (send_count % 2) {
-            memcpy(tx_buf, (uint8_t *)&light_on, sizeof(light_on));
-        } else {
-            memcpy(tx_buf, (uint8_t *)&light_off, sizeof(light_off));
-        }
 
-#ifdef MESH_ROOT_TO_GROUP
-        mesh_send_to_group(&data, (mesh_addr_t *)MESH_GROUP_ID, send_count);
-        vTaskDelay(1 * 1000 / portTICK_RATE_MS);
-        continue;
-#endif
-        for (i = 0; i < route_table_size; i++) {
-            err = esp_mesh_send(&route_table[i], &data, MESH_DATA_P2P, NULL, 0);
-            if (err) {
-                ESP_LOGE(MESH_TAG,
-                         "[ROOT-2-UNICAST:%d][L:%d]parent:"MACSTR" to "MACSTR", heap:%d[err:0x%x, proto:%d, tos:%d]",
-                         send_count, mesh_layer, MAC2STR(mesh_parent_addr.addr),
-                         MAC2STR(route_table[i].addr), esp_get_free_heap_size(),
-                         err, data.proto, data.tos);
-            } else if (!(send_count % 100)) {
-                ESP_LOGW(MESH_TAG,
-                         "[ROOT-2-UNICAST:%d][L:%d][rtableSize:%d]parent:"MACSTR" to "MACSTR", heap:%d[err:0x%x, proto:%d, tos:%d]",
-                         send_count, mesh_layer,
-                         esp_mesh_get_routing_table_size(),
-                         MAC2STR(mesh_parent_addr.addr),
-                         MAC2STR(route_table[i].addr), esp_get_free_heap_size(),
-                         err, data.proto, data.tos);
-            }
-        }
+
+        err = esp_mesh_send(NULL, &data, MESH_DATA_P2P, NULL, 0);
         /* if route_table_size is less than 10, add delay to avoid watchdog in this task. */
         if (route_table_size < 10) {
             vTaskDelay(1 * 1000 / portTICK_RATE_MS);
@@ -239,26 +139,8 @@ void esp_mesh_p2p_rx_main(void *arg)
         if (err != ESP_OK || !data.size) {
             ESP_LOGE(MESH_TAG, "err:0x%x, size:%d", err, data.size);
             continue;
-        }
-        /* extract send count */
-        if (data.size >= sizeof(send_count)) {
-            send_count = (data.data[25] << 24) | (data.data[24] << 16)
-                         | (data.data[23] << 8) | data.data[22];
-        }
-        recv_count++;
-        /* process light control */
-        if(data.data[0] == 62){
-            ESP_LOGW(MESH_TAG, "GOT MESSAGE FROM NODE:%s", data.data);
-        }
-        mesh_light_process(&from, data.data, data.size);
-        if (!(recv_count % 1)) {
-            ESP_LOGW(MESH_TAG,
-                     "[#RX:%d/%d][L:%d] parent:"MACSTR", receive from "MACSTR", size:%d, heap:%d, flag:%d[err:0x%x, proto:%d, tos:%d]",
-                     recv_count, send_count, mesh_layer,
-                     MAC2STR(mesh_parent_addr.addr), MAC2STR(from.addr),
-                     data.size, esp_get_free_heap_size(), flag, err, data.proto,
-                     data.tos);
-        }
+        }        
+        ESP_LOGW(MESH_TAG, "GOT MESSAGE FROM NODE "MACSTR" :%s", MAC2STR(from.addr), data.data);
     }
     vTaskDelete(NULL);
 }
