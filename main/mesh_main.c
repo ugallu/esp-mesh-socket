@@ -90,11 +90,13 @@ void esp_mesh_p2p_tx_main(void *arg)
     int send_count = 0;
     mesh_addr_t route_table[CONFIG_MESH_ROUTE_TABLE_SIZE];
     int route_table_size = 0;
-    mesh_data_t data;
-    strcpy((char*)tx_buf, "{\"Hello\":\"World\"}");
-    data.data = tx_buf;
-    data.size = (unsigned int) strlen((char*)tx_buf);
-    data.proto = MESH_PROTO_BIN;
+
+    mesh_data_t data_out;
+    char buffer[50] = "{\"Hello\":\"World\"}";
+    data_out.data = (uint8_t*)buffer;
+    data_out.size = strlen(buffer);
+    data_out.proto = MESH_PROTO_JSON;
+    data_out.tos = MESH_TOS_P2P;
 
     is_running = true;
     while (is_running) {
@@ -102,7 +104,6 @@ void esp_mesh_p2p_tx_main(void *arg)
         for (i = 0; i < route_table_size; i++) {
             ESP_LOGE(MESH_TAG,MACSTR,MAC2STR(route_table[i].addr));
         }
-
         esp_mesh_get_routing_table((mesh_addr_t *) &route_table,
                                    CONFIG_MESH_ROUTE_TABLE_SIZE * 6, &route_table_size);
         if (send_count && !(send_count % 100)) {
@@ -110,9 +111,7 @@ void esp_mesh_p2p_tx_main(void *arg)
                      esp_mesh_get_routing_table_size(), send_count);
         }
         send_count++;
-
-
-        err = esp_mesh_send(NULL, &data, MESH_DATA_P2P, NULL, 0);
+        err = esp_mesh_send(NULL, &data_out, MESH_DATA_P2P, NULL, 0);
         /* if route_table_size is less than 10, add delay to avoid watchdog in this task. */
         if (route_table_size < 10) {
             vTaskDelay(1 * 1000 / portTICK_RATE_MS);
